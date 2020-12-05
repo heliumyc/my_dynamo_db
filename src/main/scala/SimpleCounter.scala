@@ -17,7 +17,7 @@ object SimpleCounter {
 
     class Server extends EmulatedActor with Logged {
 
-        var count:Int = 0;
+        var count:Int = 0
 
         override protected def receiveMsg: Receive = {
             case Inc(x) =>
@@ -50,7 +50,7 @@ object SimpleCounter {
                 server ! Dec(3)
                 server ! Get()
             }
-        }))
+        }), name = "client")
 
     }
 

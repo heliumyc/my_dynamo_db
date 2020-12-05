@@ -1,5 +1,5 @@
 import akka.actor.{ActorRef, ActorSystem, Props}
-import environment.{EmulatedActor, Fuzzed, Logged}
+import environment.{EmulatedActor, ProxyActor, Fuzzed, Logged}
 
 object PingPong {
 
@@ -38,7 +38,7 @@ object PingPong {
         override def receiveMsg: Receive = {
             case PingMessage =>
                 println("  pong")
-                sender ! PongMessage
+                sender().tell(PongMessage, context.parent)
             case StopMessage =>
                 println("pong stopped")
                 context.stop(self)
@@ -49,7 +49,7 @@ object PingPong {
 
     def run(): Unit = {
         val system = ActorSystem("PingPongSystem")
-        val pong = system.actorOf(Props[Pong], name = "pong")
+        val pong = system.actorOf(Props(new ProxyActor[Pong]), name = "pong")
         val ping = system.actorOf(Props(new Ping(pong)), name = "ping")
         // start them going
         ping ! StartMessage
