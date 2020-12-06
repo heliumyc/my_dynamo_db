@@ -1,5 +1,5 @@
 import akka.actor.{Actor, ActorSystem, Props}
-import environment.{EmulatedActor, Fuzzed, Logged}
+import environment.{EmulatedActor, Logged}
 
 object SimpleCounter {
 
@@ -11,13 +11,13 @@ object SimpleCounter {
 
     case class Reset()
 
-    case class Message(s: String) {
+    case class CounterMessage(s: String) {
         override def toString: String = s
     }
 
     class Server extends EmulatedActor with Logged {
 
-        var count:Int = 0;
+        var count: Int = 0;
 
         override protected def receiveMsg: Receive = {
             case Inc(x) =>
@@ -25,7 +25,7 @@ object SimpleCounter {
             case Dec(y) =>
                 count -= y
             case Get() =>
-                sender() ! Message(count.toString)
+                sender() ! CounterMessage(count.toString)
             case Reset() =>
                 count = 0
         }
@@ -37,11 +37,12 @@ object SimpleCounter {
 
         val client = system.actorOf(Props(new Actor {
             override def receive: Receive = {
-                case Message(x) =>
+                case CounterMessage(x) =>
                     assert(x.toInt == 0)
                     println(x)
                     context.system.terminate()
             }
+
             override def preStart: Unit = {
                 server ! Reset()
                 server ! Inc(1)

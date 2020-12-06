@@ -1,5 +1,5 @@
 import akka.actor.{ActorRef, ActorSystem, Props}
-import environment.{EmulatedActor, Fuzzed, Logged}
+import environment.{EmulatedActor, Logged}
 
 object PingPong {
 
@@ -15,7 +15,8 @@ object PingPong {
         var count = 0
 
         def incrementAndPrint {
-            count += 1; println("ping " + count)
+            count += 1;
+            println("ping " + count)
         }
 
         override def receiveMsg: Receive = {
