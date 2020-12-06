@@ -1,7 +1,8 @@
 import akka.actor.{Actor, ActorSystem, Props}
 import environment.{EmulatedActor, Logged}
+import junit.framework.TestCase
 
-object SimpleCounter {
+class SimpleCounterTest extends TestCase{
 
     case class Inc(x: Int)
 
@@ -17,7 +18,7 @@ object SimpleCounter {
 
     class Server extends EmulatedActor with Logged {
 
-        var count: Int = 0;
+        var count:Int = 0
 
         override protected def receiveMsg: Receive = {
             case Inc(x) =>
@@ -31,7 +32,7 @@ object SimpleCounter {
         }
     }
 
-    def run(): Unit = {
+    def test(): Unit = {
         val system = ActorSystem("Counter")
         val server = system.actorOf(Props[Server], name = "server")
 
@@ -51,7 +52,7 @@ object SimpleCounter {
                 server ! Dec(3)
                 server ! Get()
             }
-        }))
+        }), name = "client")
 
     }
 

@@ -1,10 +1,10 @@
 import akka.actor.{Actor, ActorSystem, Props}
-import common.Message.{Get, Put, Reply}
 import components.PhysicalNode
+import components.PhysicalNode.{Get, Put, Result}
 import junit.framework.Assert.assertEquals
 import junit.framework.TestCase
 
-class KVTest extends TestCase {
+class PhysicalNodeTest extends TestCase {
 
 
     override def setUp(): Unit = {
@@ -12,13 +12,13 @@ class KVTest extends TestCase {
     }
 
     def testPutGet(): Unit = {
-        val system = ActorSystem("Counter")
-        val server = system.actorOf(Props(new PhysicalNode(1)), name = "server")
+        val system = ActorSystem("KV")
+        val server = system.actorOf(Props(new PhysicalNode(1.toString)), name = "server")
 
         val client = system.actorOf(Props(new Actor {
             override def receive: Receive = {
-                case Reply(x) =>
-                    assertEquals(x, "fuck")
+                case Result(_, x) =>
+                    assertEquals(x, Some("fuck"))
                     context.system.terminate()
             }
 
