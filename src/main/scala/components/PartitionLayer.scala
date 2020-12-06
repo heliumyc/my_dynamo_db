@@ -10,55 +10,86 @@ import scala.collection.immutable.TreeMap
  */
 class PartitionLayer(val virtualNums:Int = 1000) {
 
+    /**
+     * splitter used to join real node and virtual node index
+     */
     private val SPLITTER = "##V"
 
-    // one node is expanded to 1000 virtual node on the ring
-//    private var virtualNums = 1000
-
-    // node identifiers
+    /**
+     * real nodes list, but only store node identifiers
+     */
     private var realNodes: Set[String] = Set()
 
-    // hash to node identifier
+    /**
+     * virtual nodes mapper, hash to virtual node identifier
+     */
     private var virtualNodes: SortedMap[Int, String] = TreeMap()
 
+    /**
+     * add a node
+     * @param node node id
+     */
     def addNode(node: String): Unit = {
         realNodes += node
         refreshHashRing()
     }
 
+    /**
+     * add a batch of nodes
+     * @param nodes node list to be added
+     */
     def addNodes(nodes: List[String]): Unit = {
         realNodes = realNodes ++ nodes
         refreshHashRing()
     }
 
+    /**
+     * remove a node
+     * @param node node to be removed
+     */
     def removeNode(node: String): Unit = {
         realNodes -= node
         refreshHashRing()
     }
 
+    /**
+     * remove a batch of nodes
+     * @param node nodes list to be removed
+     */
     def removeNode(node: List[String]): Unit = {
         realNodes --= node
         refreshHashRing()
     }
 
+    /**
+     * refresh hash ring, rebuild mapping
+     * theoretically, previous mapping would stay the same
+     * so hashing can be consistent
+     */
     def refreshHashRing(): Unit = {
         virtualNodes = TreeMap()
         realNodes.map(node => {
             (1 to virtualNums).map(idx => {
-                val hash = HashUtil.getHash(getVirtualNodeName(node, idx))
-                virtualNodes += (hash -> node)
+                val virtualNodeName = getVirtualNodeName(node, idx)
+                val hash = HashUtil.getHash(virtualNodeName)
+                virtualNodes += (hash -> virtualNodeName)
             })
         })
     }
 
     /**
-     * invalidate partition layer, clear everything
+     * invalidate partition layer, clear everything, including servers already presented
      */
     def clear(): Unit = {
         realNodes = Set()
         refreshHashRing()
     }
 
+    /**
+     * get a server identifier from registered partition based on key
+     * @param key key to query
+     * @return
+     */
     def getServer(key: String): Option[String] = {
         if (realNodes.isEmpty || virtualNodes.isEmpty) {
             return None
@@ -76,14 +107,24 @@ class PartitionLayer(val virtualNums:Int = 1000) {
         Some(getRealNodeName(virtualNodeName))
     }
 
+    /**
+     * concatenate real node with virtual id, simple but effective way for this purpose
+     * @param realNodeName real node name
+     * @param virtualNodeIndex virtual node index (within the range of (0, virtualNums)
+     * @return virtual node name
+     */
     private def getVirtualNodeName(realNodeName: String, virtualNodeIndex: Int): String = {
         realNodeName + SPLITTER + virtualNodeIndex
     }
 
+    /**
+     * get real node name from virtual node name, simply split it will do the trick
+     * even if splitter is in the real server node, because we split reversely
+     * @param virtualNodeName virtual node name
+     * @return real node name
+     */
     private def getRealNodeName(virtualNodeName: String): String = {
-        // if split fails, raise error
-        // assert this can not be None
-        virtualNodeName.split(SPLITTER).head
+        virtualNodeName.splitAt(virtualNodeName.lastIndexOf(SPLITTER))._1
     }
 
 }

@@ -67,7 +67,7 @@ class PartitionTest extends TestCase {
 
     def testDeleteServer(): Unit = {
         val servers = List(
-            "server 1", "server 2", "server 3", "server 4", "server 5", "server 6"
+            "server 1", "server 2", "server 3", "server 4", "server 5", "server 6##"
         )
 
         val partition = new PartitionLayer()
