@@ -4,9 +4,7 @@ import environment.{EmulatedActor, Fuzzed}
 object Main extends App {
 
     override def main(args: Array[String]): Unit = {
-        PingPong.run()
-        SimpleCounter.run()
-
+        SimpleKV.run()
     }
 
 }
