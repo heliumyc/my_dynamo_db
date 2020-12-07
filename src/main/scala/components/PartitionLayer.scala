@@ -3,7 +3,7 @@ package components
 import myutils.HashUtil
 
 import scala.collection.SortedMap
-import scala.collection.immutable.TreeMap
+import scala.collection.immutable.{ListSet, TreeMap}
 
 /**
  * yo, homie, this is partition, aka virtual node
@@ -38,8 +38,8 @@ class PartitionLayer(val virtualNums:Int = 1000) {
      * add a batch of nodes
      * @param nodes node list to be added
      */
-    def addNodes(nodes: List[String]): Unit = {
-        realNodes = realNodes ++ nodes
+    def addNodes(nodes: Iterable[String]): Unit = {
+        realNodes ++= nodes
         refreshHashRing()
     }
 
@@ -56,7 +56,7 @@ class PartitionLayer(val virtualNums:Int = 1000) {
      * remove a batch of nodes
      * @param node nodes list to be removed
      */
-    def removeNode(node: List[String]): Unit = {
+    def removeNode(node: Iterable[String]): Unit = {
         realNodes --= node
         refreshHashRing()
     }
@@ -105,6 +105,29 @@ class PartitionLayer(val virtualNums:Int = 1000) {
             virtualNodes(subMap.firstKey)
         }
         Some(getRealNodeName(virtualNodeName))
+    }
+
+    /**
+     * get unique n PHYSICAL servers from given key
+     * @param key given key
+     * @param count replication number
+     * @return
+     */
+    def getNextPhysicalServers(key: String, count: Int): List[String] = {
+        var max_count = Math.min(count, realNodes.size)
+        var nextSet = Set[String]()
+        val addFunc = (it: Iterator[(Int, String)]) => {
+            while (max_count > 0 && it.hasNext) {
+                val ele = getRealNodeName(it.next()._2)
+                if (!nextSet.contains(ele)) {
+                    nextSet += ele
+                    max_count -= 1
+                }
+            }
+        }
+        addFunc(virtualNodes.iteratorFrom(HashUtil.getHash(key)))
+        addFunc(virtualNodes.iterator)
+        nextSet.toList
     }
 
     /**
