@@ -1,7 +1,7 @@
 package components
 
-import akka.actor.Timers
-import components.GossipActor.{HeartBeat, MergeRequest, MergeResponse, Request, Response, Start, Timeout}
+import akka.actor.{ActorRef, ActorSelection, Timers}
+import components.GossipActor.{Discover, HeartBeat, MergeRequest, MergeResponse, Request, Response, Start, Timeout}
 import environment.EmulatedActor
 
 import scala.collection.mutable
@@ -31,6 +31,7 @@ class GossipActor(var config: Configuration, val seenSet: mutable.Set[String], v
     val periodicKey = "START"
 
     override def preStart(): Unit = {
+        getActor(config.seed) ! Discover()
         timers.startTimerAtFixedRate(periodicKey, Start(), 1.second)
         seenSet.add(context.parent.path.name)
     }
@@ -41,6 +42,8 @@ class GossipActor(var config: Configuration, val seenSet: mutable.Set[String], v
         case HeartBeat(clock) =>
             cancelTimerAndUpdateFailure()
             handleHeartBeat(clock)
+        case Discover() =>
+            handleDiscover()
         case Request() =>
             cancelTimerAndUpdateFailure()
             sender() ! Response(config)
@@ -58,8 +61,8 @@ class GossipActor(var config: Configuration, val seenSet: mutable.Set[String], v
     }
 
     private def cancelTimerAndUpdateFailure(): Unit = {
-        timers.cancel(sender())
-        failedSet.remove(sender().path.parent.name)
+        timers.cancel(sender().path)
+        failedSet.remove(whoIs(sender()))
     }
 
     override def pickOnePeer(): Option[String] = {
@@ -76,11 +79,11 @@ class GossipActor(var config: Configuration, val seenSet: mutable.Set[String], v
         val peerName = pickOnePeer()
         peerName match {
             case Some(p) =>
-                val peer = context.actorSelection("/user/" + p + "/Gossip")
+                val peer = getActor(p)
                 peer ! HeartBeat(config.vectorClock)
-                timers.startTimerWithFixedDelay(peer, Timeout, timeout.second)
+                timers.startTimerWithFixedDelay(peer.pathString, Timeout, timeout.second)
             case None =>
-                println(s"Gossip is converged on ${context.parent.path.name}.")
+                println(s"Converged. Membership of ${whoIs(self)} are ${config.nodes}.")
         }
     }
 
@@ -89,12 +92,23 @@ class GossipActor(var config: Configuration, val seenSet: mutable.Set[String], v
         order match {
             case Order.after =>
                 sender ! Response(config)
-                seenSet.add(sender().path.parent.name)
+                seenSet.add(whoIs(sender()))
             case Order.before =>
                 sender ! Request()
             case Order.concurrent =>
                 sender ! MergeRequest(config)
         }
+    }
+
+    override def handleDiscover(): Unit = {
+        if (!config.nodes.contains(whoIs(sender()))) {
+            println(s"Get discover from ${whoIs(sender())}")
+            config = config.copy(
+                nodes = config.nodes + whoIs(sender()),
+                vectorClock = config.vectorClock.increase(whoIs(self))
+            )
+        }
+        sender() ! Response(config)
     }
 
     override def handleMergeRequest(otherConfig: Configuration): Unit = {
@@ -108,29 +122,39 @@ class GossipActor(var config: Configuration, val seenSet: mutable.Set[String], v
         val isSameMembership = config.nodes.equals(otherConfig.nodes)
         if (isSameMembership) {
             config = config.copy(
-                vectorClock = VectorClock.merge(self.path.parent.name, config.vectorClock, otherConfig.vectorClock)
+                vectorClock = VectorClock.merge(whoIs(self), config.vectorClock, otherConfig.vectorClock)
             )
-            seenSet.add(sender().path.parent.name)
+            seenSet.add(whoIs(sender()))
         } else {
             config = config.copy(
                 nodes = config.nodes.union(otherConfig.nodes),
-                vectorClock = VectorClock.merge(self.path.parent.name, config.vectorClock, otherConfig.vectorClock)
+                vectorClock = VectorClock.merge(whoIs(self), config.vectorClock, otherConfig.vectorClock)
             )
             // TODO:
             //  membership changed so we need to transfer some keys
             //  to the newly added nodes
             seenSet.clear()
-            seenSet.add(self.path.parent.name)
-            seenSet.add(sender().path.parent.name)
+            seenSet.add(whoIs(self))
+            seenSet.add(whoIs(sender()))
         }
         isSameMembership
     }
 
     override def handleMergeResponse(otherConfig: Configuration): Boolean = handleResponse(otherConfig)
+
+    private def whoIs(actor: ActorRef): String = {
+        actor.path.parent.name
+    }
+
+    private def getActor(name: String): ActorSelection = {
+        context.actorSelection("/user/" + name + "/Gossip")
+    }
 }
 
 object GossipActor {
     case class Start()
+
+    case class Discover()
 
     case class HeartBeat(vectorClock: VectorClock[String])
 

@@ -12,6 +12,8 @@ trait GossipProtocol {
 
     def handleHeartBeat(vectorClock: VectorClock[String]): Unit
 
+    def handleDiscover(): Unit
+
     def handleMergeRequest(otherConfig: Configuration): Unit
 
     def handleResponse(otherConfig: Configuration): Boolean

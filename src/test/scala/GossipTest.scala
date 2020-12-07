@@ -3,6 +3,25 @@ import junit.framework.TestCase
 import components.{Configuration, PhysicalNode, VectorClock}
 
 class GossipTest extends TestCase{
+    def testAutoDiscovery(): Unit = {
+        val system = ActorSystem("KV")
+        val nodes = (0 to 3) map {i =>
+            "server" + i
+        }
+        val configs = nodes map {node =>
+            Configuration(
+                Set(node),
+                Set(),
+                "server0",
+                VectorClock(Map()))
+        }
+        val servers = (0 to 3) map {i =>
+            system.actorOf(Props(new PhysicalNode(nodes(i), configs(i))), name = nodes(i))
+        }
+
+        Thread.sleep(5000)
+    }
+
     def testConvergence(): Unit = {
         val system = ActorSystem("KV")
 
@@ -28,6 +47,6 @@ class GossipTest extends TestCase{
             system.actorOf(Props(new PhysicalNode(nodes(i), configs(i))), name = nodes(i))
         }
 
-        Thread.sleep(10000)
+        Thread.sleep(5000)
     }
 }
