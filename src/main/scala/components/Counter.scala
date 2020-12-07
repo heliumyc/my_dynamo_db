@@ -1,6 +1,6 @@
-package kvstore
+package components
 
-import kvstore.Order._
+import components.Order._
 
 
 case class Counter(value: Int) extends AnyVal {

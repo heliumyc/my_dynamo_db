@@ -1,6 +1,6 @@
-package kvstore
+package components
 
-import kvstore.Order._
+import Order._
 
 case class VectorClock[Id](private val clock: Map[Id, Counter]) {
   def get(id: Id): Option[Counter] = clock.get(id)

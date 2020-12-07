@@ -83,4 +83,19 @@ class PartitionTest extends TestCase {
         printStatistics(emulateServer(10000, partition))
     }
 
+    def testPreKRange(): Unit = {
+        val servers = List(
+            "server 1", "server 2", "server 3", "server 4", "server 5", "server 6"
+        )
+
+        val virtualNums = 5
+        val partition = new PartitionLayer(virtualNums)
+        partition.addNodes(servers)
+
+        println("Test Previous 3 Range of server 3")
+        val replicatedNums = 1
+        val allRange = partition.getAllPreKRange("server 3", replicatedNums)
+        assert(allRange.size == 5 * (replicatedNums + 1))
+    }
+
 }

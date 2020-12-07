@@ -1,4 +1,4 @@
-package kvstore
+package components
 
 object Order extends Enumeration {
   type Order = Value

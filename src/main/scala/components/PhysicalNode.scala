@@ -1,5 +1,6 @@
 package components
 
+import akka.actor.Props
 import components.PhysicalNode.{Get, Put, Result}
 import environment.{EmulatedActor, Logged}
 
@@ -9,9 +10,9 @@ import scala.collection.mutable
  * name can be ip or something
  * @param name node identifier
  */
-class PhysicalNode(val name: String) extends EmulatedActor with Logged {
+class PhysicalNode(val name: String, var config: Configuration) extends EmulatedActor with Logged {
 
-    val storage: mutable.HashMap[String, String] = mutable.HashMap()
+    val storage: mutable.SortedMap[String, String] = mutable.TreeMap()
 
     override protected def receiveMsg: Receive = {
         case Put(key,value) => storage.put(key, value)
@@ -21,6 +22,13 @@ class PhysicalNode(val name: String) extends EmulatedActor with Logged {
                 case None => Result(key, None)
             }
             sender() ! msg
+    }
+
+    override def preStart(): Unit = {
+        super.preStart()
+        context.actorOf(
+            Props(new GossipActor(config, mutable.Set[String](), mutable.Set[String]())),
+            name = "Gossip")
     }
 }
 

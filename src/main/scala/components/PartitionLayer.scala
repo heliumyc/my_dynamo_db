@@ -107,6 +107,39 @@ class PartitionLayer(val virtualNums:Int = 1000) {
         Some(getRealNodeName(virtualNodeName))
     }
 
+    def getAllPreKRange(node: String, K: Int): List[PartitionLayer.Range] = {
+        (1 to virtualNums).flatMap(idx => {
+            val virtualNodeName = getVirtualNodeName(node, idx)
+            val hash = HashUtil.getHash(virtualNodeName)
+            getPreKRange(hash, K)
+        }).toList
+    }
+
+    private def getPreKRange(virtualNodeIndex: Int, K: Int): List[PartitionLayer.Range] = {
+        val reversePreKeyList = virtualNodes.keySet.to(virtualNodeIndex).toList.reverse.map(a => Option(a))
+        val reverseSucKeyList = virtualNodes.keySet.from(virtualNodeIndex).toList.reverse.map(a => Option(a))
+
+        val preRangeList = if (reversePreKeyList.size >= K + 2) {
+            reversePreKeyList
+              .drop(1)
+              .zipAll(reversePreKeyList, None, None)
+              .map(x => PartitionLayer.Range(x._1, x._2))
+              .take(K + 1)
+        } else {
+            List(PartitionLayer.Range(None, Option(virtualNodeIndex)))
+        }
+        val remainKeyCount = K - reversePreKeyList.size + 1
+        val sucRangeList = if (reverseSucKeyList.size >= remainKeyCount + 2) {
+            reverseSucKeyList
+              .zipAll(reverseSucKeyList.drop(1), None, None)
+              .map(x => PartitionLayer.Range(x._1, x._2))
+              .take(remainKeyCount + 1)
+        } else {
+            List(PartitionLayer.Range(Option(virtualNodeIndex), None))
+        }
+        preRangeList ++ sucRangeList
+    }
+
     /**
      * concatenate real node with virtual id, simple but effective way for this purpose
      * @param realNodeName real node name
@@ -126,5 +159,12 @@ class PartitionLayer(val virtualNums:Int = 1000) {
     private def getRealNodeName(virtualNodeName: String): String = {
         virtualNodeName.splitAt(virtualNodeName.lastIndexOf(SPLITTER))._1
     }
+}
 
+object PartitionLayer {
+
+    /**
+     * A index range [from, to)
+     */
+    case class Range(from: Option[Int], to: Option[Int]) {}
 }
