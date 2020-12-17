@@ -111,13 +111,13 @@ class Server(val name: String,
     def handleReadReplica: Receive = {
         case ReadReplicaRequest(queryId, key) =>
             val recordOption = storage.get(key)
-            reply(ReadReplicaResponse(queryId, recordOption))
+            reply(ReadReplicaResponse(queryId, key, recordOption))
         case ReadReplicaResponse(queryId, key, record) =>
             // receive read from other replicas, add to buffer
             queryResultBuffer.add(queryId, record)
             tryReplyReadToClient(queryId, key)
     }
-    
+
     def handleWriteReplica: Receive = {
         case WriteReplicaRequest(requestId, key, record) =>
             // write replication into current storage
