@@ -1,14 +1,14 @@
-import components.PartitionLayer
+import components.{Host, Partitioner}
 import junit.framework.TestCase
 
 import scala.collection.mutable
 
 class PartitionTest extends TestCase {
 
-    def emulateServer(operationTimes: Int, partition: PartitionLayer): Map[String, Int] = {
+    def emulateServer(operationTimes: Int, partition: Partitioner): Map[String, Int] = {
         val counter = mutable.HashMap[String, Int]()
         (1 to operationTimes).foreach(key => {
-            val node = partition.getServer(key.toString).get
+            val node = partition.getServer(key.toString).get.address
             counter.put(node, counter.getOrElse(node, 0) + 1)
         })
         counter.toMap
@@ -26,8 +26,8 @@ class PartitionTest extends TestCase {
             "server 1", "server 2", "server 3"
         )
 
-        val partition = new PartitionLayer()
-        partition.addNodes(servers)
+        val partition = new Partitioner()
+        partition.addHosts(servers.map(Host))
 
         val counter = emulateServer(10000, partition)
         println("Good load balance")
@@ -39,8 +39,8 @@ class PartitionTest extends TestCase {
             "server 1", "server 2", "server 3"
         )
 
-        val partition = new PartitionLayer(5)
-        partition.addNodes(servers)
+        val partition = new Partitioner(5)
+        partition.addHosts(servers.map(Host))
 
         val counter = emulateServer(10000, partition)
         println("Bad load balance")
@@ -52,14 +52,14 @@ class PartitionTest extends TestCase {
             "server 1", "server 2", "server 3"
         )
 
-        val partition = new PartitionLayer()
-        partition.addNodes(servers)
+        val partition = new Partitioner()
+        partition.addHosts(servers.map(Host))
 
         println("Before add server load balance")
         printStatistics(emulateServer(10000, partition))
 
-        partition.addNode("server 4")
-        partition.addNode("server 5")
+        partition.addHost(Host("server 4"))
+        partition.addHost(Host("server 5"))
 
         println("After add server load balance")
         printStatistics(emulateServer(10000, partition))
@@ -70,14 +70,14 @@ class PartitionTest extends TestCase {
             "server 1", "server 2", "server 3", "server 4", "server 5", "server 6##"
         )
 
-        val partition = new PartitionLayer()
-        partition.addNodes(servers)
+        val partition = new Partitioner()
+        partition.addHosts(servers.map(Host))
 
         println("Before add server load balance")
         printStatistics(emulateServer(10000, partition))
 
-        partition.removeNode("server 4")
-        partition.removeNode("server 2")
+        partition.removeNode(Host("server 4"))
+        partition.removeNode(Host("server 2"))
 
         println("After add server load balance")
         printStatistics(emulateServer(10000, partition))

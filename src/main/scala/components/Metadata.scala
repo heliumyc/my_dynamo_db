@@ -12,41 +12,41 @@ import akka.actor.ActorRef
  */
 class Metadata(val quorumW: Int, val quorumR: Int, val replicaN: Int) {
 
-    val partition: PartitionLayer = new PartitionLayer(1000)
+    val partition: Partitioner = new Partitioner(256)
 
-    private var physicalNodeSet: Set[String] = Set()
+    private var hostsSet: Set[Host] = Set()
 
     /**
      * this is necessary!!!
      * if we look up from context.system
      * we would know if a node is down or not, this violate our purpose
-     * we don't have a oracle machine to check node status
+     * since we don't have an oracle machine to check node status
      */
-    private var referenceMap: Map[String, ActorRef] = Map()
+    private var referenceMap: Map[Host, ActorRef] = Map()
 
-    def addPhysicalNode(name: String, ref: ActorRef): Unit = {
-        if (!physicalNodeSet.contains(name)) {
-            partition.addNode(name)
-            physicalNodeSet += name
-            referenceMap += (name -> ref)
+    def addHost(host: Host, ref: ActorRef): Unit = {
+        if (!hostsSet.contains(host)) {
+            partition.addHost(host)
+            hostsSet += host
+            referenceMap += (host -> ref)
         }
     }
 
-    def removePhysicalNode(name: String): Unit = {
-        partition.removeNode(name)
-        physicalNodeSet -= name
-        referenceMap -= name
+    def removeHost(host: Host): Unit = {
+        partition.removeNode(host)
+        hostsSet -= host
+        referenceMap -= host
     }
 
     def copy(): Metadata = {
         val ret = new Metadata(quorumW, quorumR, replicaN)
-        ret.partition.addNodes(this.physicalNodeSet)
+        ret.partition.addHosts(this.hostsSet)
         // they are immutable, so shallow copying is perfectly fine
-        ret.physicalNodeSet = this.physicalNodeSet
+        ret.hostsSet = this.hostsSet
         ret.referenceMap = this.referenceMap
         ret
     }
 
-    def getActorRef(server: String): Option[ActorRef] = referenceMap.get(server)
+    def getActorRef(server: Host): Option[ActorRef] = referenceMap.get(server)
 
 }

@@ -4,8 +4,9 @@ object HashUtil {
 
     /**
      * FNV1_32_HASH algorithm to calculate hash code
+     * https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
      * @param str string to be hashed
-     * @return hash code
+     * @return hash code (range from 0 to INT_MAX)
      */
     def getHash(str: String): Int = {
         val p = 16777619

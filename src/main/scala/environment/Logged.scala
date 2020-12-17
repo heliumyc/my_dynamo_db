@@ -2,6 +2,7 @@ package environment
 
 import akka.actor.Actor
 
+@Deprecated
 trait Logged extends EmulatedActor with ActorExtension {
 
     abstract override def receiveExtension: Receive = {

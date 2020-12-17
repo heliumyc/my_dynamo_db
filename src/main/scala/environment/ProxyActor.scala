@@ -5,6 +5,7 @@ import scala.reflect.ClassTag
 import akka.actor.{Actor, Props}
 import akka.routing.{ActorRefRoutee, RoundRobinRoutingLogic, Router}
 
+@Deprecated
 class ProxyActor[A <: EmulatedActor: ClassTag] extends Actor {
   var router: Router = {
     val routees = Vector.fill(1) {
