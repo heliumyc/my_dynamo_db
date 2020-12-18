@@ -16,6 +16,8 @@ class Metadata(val quorumW: Int, val quorumR: Int, val replicaN: Int) {
 
     private var hostsSet: Set[Host] = Set()
 
+    var enableReadRepair: Boolean = true
+
     /**
      * this is necessary!!!
      * if we look up from context.system

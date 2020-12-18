@@ -1,5 +1,0 @@
-package components
-
-class Client {
-
-}

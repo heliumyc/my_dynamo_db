@@ -5,36 +5,23 @@ import akka.pattern.after
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
-import scala.concurrent.duration.DurationDouble
+import scala.concurrent.duration.{DurationDouble, FiniteDuration}
 import scala.util.Random
+import myutils.{SimpleLogger => Logger}
 
 trait Fuzzed extends Actor {
 
-    val randGen = new Random()
-
-    val baseLatency = 2
-
-    val delayFactor = 10
-
-    val scaleFactorSqrt: Double = Math.sqrt(delayFactor)
-
-    /**
-     * according to simple statistics
-     * 68.3% is in [baseLatency, baseLatency + scaleFactor]
-     * 95.4% is in [baseLatency, baseLatency + 2*scaleFactor]
-     * 99.7% is in [baseLatency, baseLatency + 3*scaleFactor]
-     */
-    def getDelay: Double = baseLatency + scaleFactorSqrt * Math.abs(randGen.nextGaussian())
-
-    def send(target: ActorRef, msg: Any)(implicit context: ActorContext): Unit = {
-        println(s"Send: ${context.self.path.name} send $msg to ${target.path.name}")
+    def send(target: ActorRef, msg: Any, delay: Double)(implicit context: ActorContext): Unit = {
+        Logger.info(s"Send: ${context.self.path.name} send $msg to ${target.path.name}")
         // context.system.scheduler.scheduleOnce(1 second, target, msg)
-        after(getDelay seconds)(Future {
+        after(delay.milliseconds)(Future {
             target ! msg
         })(context.system)
     }
 
-    def reply(msg: Any)(implicit target: ActorRef, context: ActorContext): Unit = {
-        send(target, msg)
-    }
+//    // this implicit usage is buggy, sender() is resolved at compile time
+//    def reply(msg: Any)(implicit target: ActorRef, context: ActorContext): Unit = {
+//        println(s"reply to ${target.path.name}")
+//        send(target, msg)
+//    }
 }

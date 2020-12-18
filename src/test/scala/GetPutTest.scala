@@ -23,14 +23,41 @@ class GetPutTest extends TestCase {
 
         val client = system.actorOf(Props(new Actor {
             override def preStart: Unit = {
-                server ! Put("hello", Set("apple"), Version())
+                server ! Put("hello", "apple", Version())
                 server ! Get("aa")
             }
 
             override def receive: Receive = {
                 case PutResult(_, _) =>
                     println("put success")
-                case GetResult(_, x) =>
+                case GetResult(_, x, _) =>
+                    println(x)
+                case Failure() =>
+                    println("fail")
+            }
+        }))
+
+        Thread.sleep(5000)
+        system.terminate()
+    }
+
+    def testBadPutGet(): Unit = {
+        val metaData = new Metadata(2, 2, 1)
+
+        val system = ActorSystem("KV")
+        val server = system.actorOf(Props(new Server("server", metaData)), name = "server")
+        metaData.addHost(Host("server"), server)
+
+        val client = system.actorOf(Props(new Actor {
+            override def preStart: Unit = {
+                server ! Put("hello", "apple", Version())
+                server ! Get("aa")
+            }
+
+            override def receive: Receive = {
+                case PutResult(_, _) =>
+                    println("put success")
+                case GetResult(_, x, _) =>
                     println(x)
                 case Failure() =>
                     println("fail")

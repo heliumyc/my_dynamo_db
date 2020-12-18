@@ -2,9 +2,9 @@ package components
 
 import components.Message._
 import myutils.{CollectionUtils, IndexedBuffer}
-import akka.actor.{Actor, Timers}
-import environment.{Fuzzed, MessageLogging}
-import myutils.Order.{AFTER, BEFORE, CONCURRENT}
+import akka.actor.{Actor, ActorRef, Timers}
+import environment.{Delay, Fuzzed, MessageLogging}
+import myutils.Order.{AFTER, BEFORE, CONCURRENT, SAME}
 
 import scala.collection.mutable
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
@@ -39,6 +39,8 @@ class Server(val name: String,
      */
     var metadata: Metadata = initMetadata.copy()
 
+    var delay: Delay = Delay()
+
     /**
      * timers
      */
@@ -48,8 +50,8 @@ class Server(val name: String,
 
     case class MaxWaitTimeout(queryId: QueryId)
 
-    val MAX_WAIT_TIMEOUT: FiniteDuration = 100.milliseconds
-    val HINTS_WRITE_WAIT_TIME: FiniteDuration = 20.milliseconds
+    val MAX_WAIT_TIMEOUT: FiniteDuration = 500.milliseconds
+    val HINTS_WRITE_WAIT_TIME: FiniteDuration = 100.milliseconds
     val HANDOFF_INTERVAL_TIME: FiniteDuration = 3.seconds
 
     timers.startTimerWithFixedDelay(HintedHandoffTimer, HintedHandoffTimer, HANDOFF_INTERVAL_TIME)
@@ -64,18 +66,17 @@ class Server(val name: String,
     val readResultBuffer: IndexedBuffer[QueryId, Option[Record]] = IndexedBuffer()
     val writeResultBuffer: IndexedBuffer[QueryId, Host] = IndexedBuffer()
 
+    /** currently is if show all replicas */
+    var queryExtraInformation: Map[QueryId, ExtraInfo] = Map()
+
     /** ******* utility function ******** */
-    def broadcast[T](targets: Iterable[Host], message: T): Unit = {
-        //        targets.flatMap(metadata.getActorRef).foreach(send(_, message))
-        targets.flatMap(metadata.getActorRef).foreach(x => {
-            println(s"actor $x")
-            send(x, message)
-        })
+    def broadcast[T](targets: Iterable[Host], message: T, delay: Double): Unit = {
+        targets.flatMap(metadata.getActorRef).foreach(send(_, message, delay))
     }
 
-    def sendToHost[T](target: Host, message: T): Unit = {
+    def sendToHost[T](target: Host, message: T, delay: Double): Unit = {
         metadata.getActorRef(target) match {
-            case Some(addr) => send(addr, message)
+            case Some(addr) => send(addr, message, delay)
             case None =>
         }
     }
@@ -110,10 +111,11 @@ class Server(val name: String,
             case BEFORE => r2
             case AFTER => r1
             case CONCURRENT => conflictResolveFunc(r1, r2)
+            case SAME => r1
         }
     }
 
-    def mergeAndPut(key: Key, newRecord: Record): Unit = {
+    def tryMergeAndPut(key: Key, newRecord: Record): Unit = {
         val merged = storage.get(key) match {
             case Some(oldRecord) => tryMergeRecord(oldRecord, newRecord)
             case None => newRecord
@@ -121,19 +123,30 @@ class Server(val name: String,
         storage.put(key, merged)
     }
 
-    def tryReplyReadToClient(queryId: QueryId, key: Key): Unit = {
+    def isStale(currentRecordOption: Option[Record], recvRecordOption: Option[Record]): Boolean = {
+        (currentRecordOption, recvRecordOption) match {
+            case (Some(curVal), Some(recVal)) => (curVal.version compare recVal.version) == AFTER
+            case (None, Some(_)) => false
+            case (Some(_), None) => true
+            case (None, None) => false
+        }
+    }
+
+    def tryReplyReadToClient(queryId: QueryId, key: Key, extraInfo: ExtraInfo): Unit = {
         // check if read quorum is achieved
         val readResults = readResultBuffer.get(queryId)
         if (readResults.length >= Math.min(metadata.quorumR, metadata.replicaN)) {
             // that's great, read is successful and we try to merge them together
             readResultBuffer.remove(queryId)
+            queryExtraInformation -= queryId
             // NOTE THIS IS A PERFORMANCE PITFALL, there is an implicit conversion from Option to Iterable
             var finalRecord = readResults.reduce((acc, r) => (acc ++ r).reduceOption(tryMergeRecord))
             finalRecord = finalRecord.flatMap(r => Some(r.updateVersion(r.version.increase(currentHost))))
             // cancel read failure timeout
             cancelMaxWaitTimeout(queryId)
             // reply to client
-            replyToClient(queryId, GetResult(key, finalRecord))
+            val allReplicas = if (extraInfo.showAllReplicas) readResults else List()
+            replyToClient(queryId, GetResult(key, finalRecord, allReplicas))
         }
     }
 
@@ -153,18 +166,28 @@ class Server(val name: String,
     def handleReadReplica: Receive = {
         case ReadReplicaRequest(queryId, key) =>
             val recordOption = storage.get(key)
-            reply(ReadReplicaResponse(queryId, key, recordOption))
+            // read response
+            send(sender(), ReadReplicaResponse(queryId, key, recordOption), delay.arsDelay)
         case ReadReplicaResponse(queryId, key, record) =>
             // receive read from other replicas, add to buffer
-            readResultBuffer.add(queryId, record)
-            tryReplyReadToClient(queryId, key)
+            if (readResultBuffer.exists(queryId)) {
+                readResultBuffer.add(queryId, record)
+            }
+            // check if we need to do read repair
+            val curVal = storage.get(key)
+            if (metadata.enableReadRepair && isStale(curVal, record)) {
+                // do read repair
+                send(sender(), RepairRequest(key, curVal.get), delay.writeDelay)
+            }
+            tryReplyReadToClient(queryId, key, queryExtraInformation.getOrElse(queryId, ExtraInfo()))
     }
 
     def handleWriteReplica: Receive = {
         case WriteReplicaRequest(queryId, key, record) =>
             // write replication into current storage
-            mergeAndPut(key, record)
-            reply(WriteReplicaResponse(queryId, success = true, currentHost, key))
+            tryMergeAndPut(key, record)
+            // write ack
+            send(sender(), WriteReplicaResponse(queryId, success = true, currentHost, key), delay.arsDelay)
         case WriteReplicaResponse(queryId, true, from, key) =>
             // successful logic, remove it from to_send list
             // unsuccessful ones will be retried when timer is up
@@ -173,14 +196,18 @@ class Server(val name: String,
         case WriteReplicaResponse(queryId, false, from, _) =>
     }
 
+    def handleReadRepair: Receive = {
+        case RepairRequest(key, record) => tryMergeAndPut(key, record)
+    }
+
     def handleHintedHandoff: Receive = {
         case HintsTransitRequest(queryId, key, originalHost, record) =>
             hintsStorage.add((originalHost, key, record))
-            reply(WriteReplicaResponse(queryId, success = true, currentHost, key))
+            send(sender(), WriteReplicaResponse(queryId, success = true, currentHost, key), delay.writeDelay)
         case HintedHandoffRequest(hintId, key, record) =>
             // write replication into current storage
-            mergeAndPut(key, record)
-            reply(HintedHandoffResponse(hintId, success = true, currentHost, key))
+            tryMergeAndPut(key, record)
+            send(sender(), HintedHandoffResponse(hintId, success = true, currentHost, key), delay.writeDelay)
         case HintedHandoffResponse(hintId, true, from, key) =>
             // successful logic, remove it from to_send list
             // unsuccessful ones will be retried when timer is up
@@ -192,13 +219,13 @@ class Server(val name: String,
             val hintsNodes = metadata.partition.getNextNHosts(key, replicasToHandoff.length, metadata.replicaN)
             (replicasToHandoff zip hintsNodes).foreach {
                 case ((host, record), target) =>
-                    sendToHost(target, HintsTransitRequest(queryId, key, host, record))
+                    sendToHost(target, HintsTransitRequest(queryId, key, host, record), delay.writeDelay)
             }
         case HintedHandoffTimer =>
             // scan hints storage and handoff them to original host
             hintsStorage.internalData.foreach {
                 case (hintId, (host, key, record)) =>
-                    sendToHost(host, HintedHandoffRequest(hintId, key, record))
+                    sendToHost(host, HintedHandoffRequest(hintId, key, record), delay.writeDelay)
             }
     }
 
@@ -214,13 +241,13 @@ class Server(val name: String,
             // replicate data to other replication server
             val replicas = getReplicasList(key)
             replicationSendBuffer.set(queryId, replicas.map(host => (host, record)))
-            broadcast(replicas, WriteReplicaRequest(queryId, key, record))
+            broadcast(replicas, WriteReplicaRequest(queryId, key, record), delay.writeDelay)
             // set timeout, if it is up, then this query fails
             setMaxWaitTimeout(queryId, MAX_WAIT_TIMEOUT)
             // set timeout for hinted handoff, if it is up, then find a node to store hints
             setHintedWriteTimeout(queryId, key, HINTS_WRITE_WAIT_TIME)
             tryReplyWriteToClient(queryId, key)
-        case Get(key) =>
+        case Get(key, extraInfo) =>
             // get unique query id
             val queryId = clientConnectionPool.addConnection(sender())
             // fetch record from current machine
@@ -229,11 +256,13 @@ class Server(val name: String,
             readResultBuffer.add(queryId, record)
             // fetch record from other replication
             val replicas = getReplicasList(key)
-            broadcast(replicas, ReadReplicaRequest(queryId, key))
+            broadcast(replicas, ReadReplicaRequest(queryId, key), delay.arsDelay)
             // set timeout, if it is up, then this query fails
             setMaxWaitTimeout(queryId, MAX_WAIT_TIMEOUT)
-            tryReplyReadToClient(queryId, key)
+            tryReplyReadToClient(queryId, key, extraInfo)
+            queryExtraInformation += (queryId -> extraInfo)
     }
+
 
     def handleTimeout: Receive = {
         case MaxWaitTimeout(queryId: QueryId) =>
@@ -252,11 +281,26 @@ class Server(val name: String,
         case UpdateConfiguration(metadata) => this.metadata = metadata.copy()
     }
 
-    override def receive: Receive =
-        handleQuery orElse
-            handleReadReplica orElse
-            handleWriteReplica orElse
-            handleHintedHandoff orElse
-            handleConfiguration orElse
-            handleTimeout
+    /**
+     * only for test
+     * @return
+     */
+    def handleTestKit: Receive = {
+        case PeekStorage(key) =>
+            sender() ! GetResult(key, storage.get(key))
+        case UpdateDelay(delay) =>
+            this.delay = delay
+    }
+
+    override def receive: Receive = List(
+        handleQuery, handleReadReplica, handleWriteReplica, handleHintedHandoff, handleReadRepair,
+        handleConfiguration, handleTimeout, handleTestKit
+    ).reduce(_ orElse _)
+}
+
+object Server {
+    def redirectToCoordinator(metadata: Metadata, key: Key): Option[ActorRef] = {
+        val host = metadata.partition.getServer(key).get
+        metadata.getActorRef(host)
+    }
 }

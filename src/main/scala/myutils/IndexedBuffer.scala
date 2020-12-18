@@ -47,7 +47,13 @@ class IndexedBuffer[Id, Element] {
 
     def exists(id: Id): Boolean = {
         buffer.get(id) match {
-            case Some(l) => l.nonEmpty
+            case Some(l) =>
+                if (l.nonEmpty) {
+                    true
+                } else {
+                    remove(id)
+                    false
+                }
             case None => false
         }
     }

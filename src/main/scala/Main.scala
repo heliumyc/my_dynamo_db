@@ -1,11 +1,11 @@
 import akka.actor._
-import akka.pattern.extended
+import akka.pattern.{after, ask, extended}
+import akka.util.Timeout
 import components.{Message, Metadata, Server}
 
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.Future
+import scala.concurrent.{Await, Future}
 import scala.concurrent.duration.DurationInt
-import akka.pattern.after
 import environment.Fuzzed
 
 import scala.util.Random
@@ -14,7 +14,8 @@ object Main extends App {
 
     abstract class Message
 
-    case class Salute(s: String, target: ActorRef) extends Message
+    case class Redirect(s: String, target: ActorRef) extends Message
+    case class Salute(s: String) extends Message
     case object Cancel extends Message
 
     trait MyPipeline extends Actor {
@@ -28,29 +29,39 @@ object Main extends App {
         }
     }
 
+    trait TestImplicit extends Actor {
+        def f(implicit s: String = "fuck"): Unit = {
+            println(s)
+        }
+    }
+
     class A extends Actor with Fuzzed with Timers {
 
         case object TimerKey
-
         case object Timer
 
-        var timercounter = 3
         timers.startTimerWithFixedDelay(TimerKey, Timer, 300.millis)
 
+        implicit var x: String = "init"
+
         def handleMsg: Receive = {
-            case Salute(x, target) =>
+            case Redirect(x, target) =>
                 println(x)
-                println(s"current gen $randGen")
-                send(target, "fuck")
+                send(target, "fuck", 0)
+            case Salute(x) =>
+                this.x = x
+                after(1000.milliseconds)(Future{
+                    sender() ! "this is set!"
+                })(context.system)
             case s: String =>
                 println(s"received ${s} in ${context.self} from ${sender()}")
         }
 
         def handleTimer: Receive = {
             case Timer =>
-                println(s"Timer is up in ${context.self.path.name}")
+//                println(s"Timer is up in ${x}")
             case Cancel =>
-                println("receive cancel")
+//                println("receive cancel")
                 timers.cancel(TimerKey)
         }
 
@@ -60,14 +71,12 @@ object Main extends App {
     override def main(args: Array[String]): Unit = {
         val system = ActorSystem("KV")
         val server1 = system.actorOf(Props[A], name = "server1")
-        val server2 = system.actorOf(Props[A], name = "server2")
-        server1 ! Salute("babababba", server2)
-        server2 ! Salute("dididididi", server1)
         Thread.sleep(2000)
-        server1 ! Cancel
-        server2 ! Cancel
-        server2 ! Cancel
-        server1 ! Cancel
+
+        implicit val timeout: Timeout = Timeout(5.seconds)
+        val future = server1 ? Salute("hello")
+        val retString = Await.result(future, timeout.duration).asInstanceOf[String]
+        println(retString)
     }
 
 }

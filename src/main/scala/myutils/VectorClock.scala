@@ -1,6 +1,6 @@
 package myutils
 
-import myutils.Order.{BEFORE, AFTER, CONCURRENT, Order}
+import myutils.Order.{AFTER, BEFORE, CONCURRENT, SAME, Order}
 
 case class VectorClock[Id](private val clock: Map[Id, Int] = Map()) {
     def get(id: Id): Int = clock.getOrElse(id, 0)
@@ -23,9 +23,13 @@ case class VectorClock[Id](private val clock: Map[Id, Int] = Map()) {
      * @return
      */
     def compare(other: VectorClock[Id]): Order = {
-        if (this < other) {
+        val isBefore = this < other
+        val isAfter = other < this
+        if (isBefore && isAfter) {
+            SAME
+        } else if (isBefore) {
             BEFORE
-        } else if (other < this) {
+        } else if (isAfter) {
             AFTER
         } else {
             CONCURRENT

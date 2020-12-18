@@ -22,29 +22,31 @@ class ReplicationTest extends TestCase {
         serverRefs.foreach(ref => metaData.addHost(Host(ref.path.name), ref))
         serverRefs.foreach(ref => ref ! UpdateConfiguration(metaData))
 
-        val target = serverRefs(serverList.indexOf(metaData.partition.getServer("hello").get.address))
-//        target ! Put("hello", "123")
+        val testKey = "alice"
+        val testVal = "apple"
+        val target = Server.redirectToCoordinator(metaData, testKey)
+        target.get ! Put(testKey, testVal, Version())
         // wait for replication consistent
         Thread.sleep(2000)
 
-//        val client = system.actorOf(Props(new Actor {
-//            var count = 0
-//            override def receive: Receive = {
-//                case Result(key, Some(value)) =>
-//                    assertEquals(value, "123")
-//                    count += 1
-//                case Result(key, None) =>
-//                case "end" =>
-//                    println(count)
-//            }
-//
-//            override def preStart(): Unit = {
-//                serverRefs.foreach(ref => ref ! Get("hello"))
-//            }
-//        }))
-//
-//        Thread.sleep(2000)
-//        client ! "end"
+        val client = system.actorOf(Props(new Actor {
+            var count = 0
+            override def receive: Receive = {
+                case GetResult(key, Some(value), _) =>
+                    count += 1
+                case GetResult(key, None, _) =>
+                case "end" =>
+                    println(count) // must be 3
+                    assert(count == 3)
+            }
+
+            override def preStart(): Unit = {
+                serverRefs.foreach(ref => ref ! PeekStorage(testKey))
+            }
+        }))
+
+        Thread.sleep(2000)
+        client ! "end"
         system.terminate()
     }
 
