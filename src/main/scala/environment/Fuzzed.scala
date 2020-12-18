@@ -14,12 +14,20 @@ trait Fuzzed extends Actor {
 
     val baseLatency = 2
 
-    val latencyVariance = 10
+    val delayFactor = 10
 
-    def getDelay: Double = baseLatency + latencyVariance * Math.abs(randGen.nextGaussian())
+    val scaleFactorSqrt: Double = Math.sqrt(delayFactor)
+
+    /**
+     * according to simple statistics
+     * 68.3% is in [baseLatency, baseLatency + scaleFactor]
+     * 95.4% is in [baseLatency, baseLatency + 2*scaleFactor]
+     * 99.7% is in [baseLatency, baseLatency + 3*scaleFactor]
+     */
+    def getDelay: Double = baseLatency + scaleFactorSqrt * Math.abs(randGen.nextGaussian())
 
     def send(target: ActorRef, msg: Any)(implicit context: ActorContext): Unit = {
-        println(s"${context.self.path.name} send $msg to ${target.path.name}")
+        println(s"Send: ${context.self.path.name} send $msg to ${target.path.name}")
         // context.system.scheduler.scheduleOnce(1 second, target, msg)
         after(getDelay seconds)(Future {
             target ! msg

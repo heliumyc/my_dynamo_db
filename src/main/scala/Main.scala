@@ -15,6 +15,7 @@ object Main extends App {
     abstract class Message
 
     case class Salute(s: String, target: ActorRef) extends Message
+    case object Cancel extends Message
 
     trait MyPipeline extends Actor {
         override def aroundReceive(receive: Receive, msg: Any): Unit = {
@@ -48,6 +49,9 @@ object Main extends App {
         def handleTimer: Receive = {
             case Timer =>
                 println(s"Timer is up in ${context.self.path.name}")
+            case Cancel =>
+                println("receive cancel")
+                timers.cancel(TimerKey)
         }
 
         override def receive: Receive = handleMsg orElse handleTimer
@@ -59,6 +63,11 @@ object Main extends App {
         val server2 = system.actorOf(Props[A], name = "server2")
         server1 ! Salute("babababba", server2)
         server2 ! Salute("dididididi", server1)
+        Thread.sleep(2000)
+        server1 ! Cancel
+        server2 ! Cancel
+        server2 ! Cancel
+        server1 ! Cancel
     }
 
 }

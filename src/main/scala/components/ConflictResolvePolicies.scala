@@ -11,7 +11,7 @@ object ConflictResolvePolicies {
     }
 
     def mergeTwoSet(r1: Record, r2: Record): Record = {
-        Record(r1.value ++ r2.value, r1.version.)
+        Record(r1.value ++ r2.value, r1.version.merge(r2.version))
     }
 
 }

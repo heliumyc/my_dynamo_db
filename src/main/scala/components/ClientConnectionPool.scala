@@ -17,8 +17,8 @@ class ClientConnectionPool {
         conn
     }
 
-    def addConnection()(implicit clientAddress: ClientAddress): Id = {
-        println(clientAddress)
+    def addConnection(clientAddress: ClientAddress): Id = {
+//        println(clientAddress)
         queryId += 1
         connectionPool += (queryId -> clientAddress)
         queryId

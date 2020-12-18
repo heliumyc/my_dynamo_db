@@ -1,5 +1,5 @@
 package components
 
-class CasualContext {
+class Client {
 
 }

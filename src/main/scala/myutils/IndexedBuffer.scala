@@ -20,12 +20,18 @@ class IndexedBuffer[Id, Element] {
     }
 
     def set(id: Id, elements: List[Element]): IndexedBuffer[Id, Element] = {
-        buffer += (id -> elements)
+        if (elements.nonEmpty) {
+            buffer += (id -> elements)
+        }
         this
     }
 
     def remove(id: Id, element: Element): IndexedBuffer[Id, Element] = {
-        val elementList = CollectionUtils.removeElement(get(id), element)
+        remove(id, _ == element)
+    }
+
+    def remove(id: Id, matchFunc: Element => Boolean): IndexedBuffer[Id, Element] = {
+        val elementList = CollectionUtils.removeElement(get(id), matchFunc)
         if (elementList.isEmpty) {
             buffer -= id
         } else {
@@ -37,6 +43,13 @@ class IndexedBuffer[Id, Element] {
     def remove(id: Id): IndexedBuffer[Id, Element] = {
         buffer -= id
         this
+    }
+
+    def exists(id: Id): Boolean = {
+        buffer.get(id) match {
+            case Some(l) => l.nonEmpty
+            case None => false
+        }
     }
 
     def +(id: Id, elements: List[Element]): IndexedBuffer[Id, Element] = {

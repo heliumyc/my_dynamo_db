@@ -134,6 +134,10 @@ class Partitioner(val virtualNums:Int = 256) {
         nextSet.toList
     }
 
+    def getNextNHosts(key: String, count: Int, skip: Int): List[Host] = {
+        (getNextNHosts(key, count+skip).toSet diff getNextNHosts(key, count).toSet).toList
+    }
+
     /**
      * concatenate real node with virtual id, simple but effective way for this purpose
      * @param host host
