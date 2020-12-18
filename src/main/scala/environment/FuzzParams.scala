@@ -7,4 +7,4 @@ package environment
  * @param readDelay
  * @param responseDelay
  */
-case class Delay(writeDelay: Double = 0, arsDelay: Double = 0)
+case class FuzzParams(writeDelay: Double = 0, arsDelay: Double = 0, dropRate: Double = 0)

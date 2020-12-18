@@ -11,12 +11,17 @@ import myutils.{SimpleLogger => Logger}
 
 trait Fuzzed extends Actor {
 
-    def send(target: ActorRef, msg: Any, delay: Double)(implicit context: ActorContext): Unit = {
+    val rand: Random = new Random()
+
+    def send(target: ActorRef, msg: Any, delay: Double, dropRate: Double)(implicit context: ActorContext): Unit = {
         Logger.info(s"Send: ${context.self.path.name} send $msg to ${target.path.name}")
         // context.system.scheduler.scheduleOnce(1 second, target, msg)
-        after(delay.milliseconds)(Future {
-            target ! msg
-        })(context.system)
+        val notDrop = rand.nextDouble() > dropRate
+        if (notDrop) {
+            after(delay.milliseconds)(Future {
+                target ! msg
+            })(context.system)
+        }
     }
 
 //    // this implicit usage is buggy, sender() is resolved at compile time

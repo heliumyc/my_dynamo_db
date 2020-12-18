@@ -3,7 +3,7 @@ package components
 import components.Message._
 import myutils.{CollectionUtils, IndexedBuffer}
 import akka.actor.{Actor, ActorRef, Timers}
-import environment.{Delay, Fuzzed, MessageLogging}
+import environment.{FuzzParams, Fuzzed, MessageLogging}
 import myutils.Order.{AFTER, BEFORE, CONCURRENT, SAME}
 
 import scala.collection.mutable
@@ -39,7 +39,7 @@ class Server(val name: String,
      */
     var metadata: Metadata = initMetadata.copy()
 
-    var delay: Delay = Delay()
+    var fuzzParams: FuzzParams = FuzzParams()
 
     /**
      * timers
@@ -70,13 +70,13 @@ class Server(val name: String,
     var queryExtraInformation: Map[QueryId, ExtraInfo] = Map()
 
     /** ******* utility function ******** */
-    def broadcast[T](targets: Iterable[Host], message: T, delay: Double): Unit = {
-        targets.flatMap(metadata.getActorRef).foreach(send(_, message, delay))
+    def broadcast[T](targets: Iterable[Host], message: T, delay: Double, dropRate: Double): Unit = {
+        targets.flatMap(metadata.getActorRef).foreach(send(_, message, delay, dropRate))
     }
 
-    def sendToHost[T](target: Host, message: T, delay: Double): Unit = {
+    def sendToHost[T](target: Host, message: T, delay: Double, dropRate: Double): Unit = {
         metadata.getActorRef(target) match {
-            case Some(addr) => send(addr, message, delay)
+            case Some(addr) => send(addr, message, delay, dropRate)
             case None =>
         }
     }
@@ -167,7 +167,7 @@ class Server(val name: String,
         case ReadReplicaRequest(queryId, key) =>
             val recordOption = storage.get(key)
             // read response
-            send(sender(), ReadReplicaResponse(queryId, key, recordOption), delay.arsDelay)
+            send(sender(), ReadReplicaResponse(queryId, key, recordOption), fuzzParams.arsDelay, fuzzParams.dropRate)
         case ReadReplicaResponse(queryId, key, record) =>
             // receive read from other replicas, add to buffer
             if (readResultBuffer.exists(queryId)) {
@@ -177,7 +177,7 @@ class Server(val name: String,
             val curVal = storage.get(key)
             if (metadata.enableReadRepair && isStale(curVal, record)) {
                 // do read repair
-                send(sender(), RepairRequest(key, curVal.get), delay.writeDelay)
+                send(sender(), RepairRequest(key, curVal.get), fuzzParams.writeDelay, fuzzParams.dropRate)
             }
             tryReplyReadToClient(queryId, key, queryExtraInformation.getOrElse(queryId, ExtraInfo()))
     }
@@ -187,7 +187,7 @@ class Server(val name: String,
             // write replication into current storage
             tryMergeAndPut(key, record)
             // write ack
-            send(sender(), WriteReplicaResponse(queryId, success = true, currentHost, key), delay.arsDelay)
+            send(sender(), WriteReplicaResponse(queryId, success = true, currentHost, key), fuzzParams.arsDelay, fuzzParams.dropRate)
         case WriteReplicaResponse(queryId, true, from, key) =>
             // successful logic, remove it from to_send list
             // unsuccessful ones will be retried when timer is up
@@ -203,11 +203,11 @@ class Server(val name: String,
     def handleHintedHandoff: Receive = {
         case HintsTransitRequest(queryId, key, originalHost, record) =>
             hintsStorage.add((originalHost, key, record))
-            send(sender(), WriteReplicaResponse(queryId, success = true, currentHost, key), delay.writeDelay)
+            send(sender(), WriteReplicaResponse(queryId, success = true, currentHost, key), fuzzParams.writeDelay, fuzzParams.dropRate)
         case HintedHandoffRequest(hintId, key, record) =>
             // write replication into current storage
             tryMergeAndPut(key, record)
-            send(sender(), HintedHandoffResponse(hintId, success = true, currentHost, key), delay.writeDelay)
+            send(sender(), HintedHandoffResponse(hintId, success = true, currentHost, key), fuzzParams.writeDelay, fuzzParams.dropRate)
         case HintedHandoffResponse(hintId, true, from, key) =>
             // successful logic, remove it from to_send list
             // unsuccessful ones will be retried when timer is up
@@ -219,13 +219,13 @@ class Server(val name: String,
             val hintsNodes = metadata.partition.getNextNHosts(key, replicasToHandoff.length, metadata.replicaN)
             (replicasToHandoff zip hintsNodes).foreach {
                 case ((host, record), target) =>
-                    sendToHost(target, HintsTransitRequest(queryId, key, host, record), delay.writeDelay)
+                    sendToHost(target, HintsTransitRequest(queryId, key, host, record), fuzzParams.writeDelay, fuzzParams.dropRate)
             }
         case HintedHandoffTimer =>
             // scan hints storage and handoff them to original host
             hintsStorage.internalData.foreach {
                 case (hintId, (host, key, record)) =>
-                    sendToHost(host, HintedHandoffRequest(hintId, key, record), delay.writeDelay)
+                    sendToHost(host, HintedHandoffRequest(hintId, key, record), fuzzParams.writeDelay, fuzzParams.dropRate)
             }
     }
 
@@ -241,7 +241,7 @@ class Server(val name: String,
             // replicate data to other replication server
             val replicas = getReplicasList(key)
             replicationSendBuffer.set(queryId, replicas.map(host => (host, record)))
-            broadcast(replicas, WriteReplicaRequest(queryId, key, record), delay.writeDelay)
+            broadcast(replicas, WriteReplicaRequest(queryId, key, record), fuzzParams.writeDelay, fuzzParams.dropRate)
             // set timeout, if it is up, then this query fails
             setMaxWaitTimeout(queryId, MAX_WAIT_TIMEOUT)
             // set timeout for hinted handoff, if it is up, then find a node to store hints
@@ -256,7 +256,7 @@ class Server(val name: String,
             readResultBuffer.add(queryId, record)
             // fetch record from other replication
             val replicas = getReplicasList(key)
-            broadcast(replicas, ReadReplicaRequest(queryId, key), delay.arsDelay)
+            broadcast(replicas, ReadReplicaRequest(queryId, key), fuzzParams.arsDelay, fuzzParams.dropRate)
             // set timeout, if it is up, then this query fails
             setMaxWaitTimeout(queryId, MAX_WAIT_TIMEOUT)
             tryReplyReadToClient(queryId, key, extraInfo)
@@ -288,8 +288,8 @@ class Server(val name: String,
     def handleTestKit: Receive = {
         case PeekStorage(key) =>
             sender() ! GetResult(key, storage.get(key))
-        case UpdateDelay(delay) =>
-            this.delay = delay
+        case UpdateFuzzParams(fuzzParams) =>
+            this.fuzzParams = fuzzParams
     }
 
     override def receive: Receive = List(

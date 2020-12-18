@@ -47,7 +47,7 @@ object Main extends App {
         def handleMsg: Receive = {
             case Redirect(x, target) =>
                 println(x)
-                send(target, "fuck", 0)
+                send(target, "fuck", 0, 0)
             case Salute(x) =>
                 this.x = x
                 after(1000.milliseconds)(Future{

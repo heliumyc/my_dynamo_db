@@ -1,9 +1,9 @@
 import akka.actor.{Actor, ActorRef, ActorSystem, Props, Timers}
 import akka.pattern.ask
 import akka.util.Timeout
-import components.Message.{Get, GetResult, PeekStorage, Put, UpdateConfiguration, UpdateDelay}
+import components.Message.{Get, GetResult, PeekStorage, Put, UpdateConfiguration, UpdateFuzzParams}
 import components.{Host, Metadata, Server, Version}
-import environment.{Delay, Fuzzed}
+import environment.{FuzzParams, Fuzzed}
 import junit.framework.TestCase
 import myutils.ExpRandomGenerator
 
@@ -25,13 +25,18 @@ class ConsistencyTest extends TestCase {
         })
         // start the system
         val metaData = new Metadata(quorumW, quorumR, replicaN)
+        metaData.enableReadRepair = false
         val serverList = (1 to serverNum).map(i => s"server_$i")
 
         val system = ActorSystem("KV")
         val serverRefs = serverList.map(x => system.actorOf(Props(new Server(x, metaData)), name = x))
         serverRefs.foreach(ref => metaData.addHost(Host(ref.path.name), ref))
         serverRefs.foreach(ref => ref ! UpdateConfiguration(metaData))
-        serverRefs.foreach(ref => ref ! UpdateDelay(Delay(rand.nextExp(1/writeMeanDelay), rand.nextExp(1/arsMeanDelay))))
+        serverRefs.foreach(ref => ref ! UpdateFuzzParams(FuzzParams(
+            writeDelay = rand.nextExp(1/writeMeanDelay),
+            arsDelay = rand.nextExp(1/arsMeanDelay),
+            dropRate = 0
+        )))
 
         // wait for sync
         Thread.sleep(1000)
@@ -62,7 +67,7 @@ class ConsistencyTest extends TestCase {
                 override def receive: Receive = {
                     case GetResult(key, Some(record), allReplicas) =>
                         if (value == record.value) {
-                            send(counter, 1, 0)
+                            send(counter, 1, 0, 0)
                         }
                         context.system.stop(self)
                     case GetResult(key, None, _) =>
@@ -72,9 +77,9 @@ class ConsistencyTest extends TestCase {
 
                 override def preStart(): Unit = {
                     // put key value into storage
-                    send(target, Put(key, value, Version()), 0)
+                    send(target, Put(key, value, Version()), 0, 0)
                     // after time t, read from system
-                    send(target, Get(key), timeAfterWrite)
+                    send(target, Get(key), timeAfterWrite, 0)
                 }
             }), s"client_$i")
         }

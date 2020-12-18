@@ -1,7 +1,7 @@
 package components
 
 import components.Version.Version
-import environment.Delay
+import environment.FuzzParams
 
 trait Message
 
@@ -34,6 +34,6 @@ object Message {
 
     /************** Test Utility Message *************/
     case class PeekStorage(key: Key) extends Message
-    case class UpdateDelay(delay: Delay) extends Message
+    case class UpdateFuzzParams(fuzzParams: FuzzParams) extends Message
     case object OK extends Message
 }
