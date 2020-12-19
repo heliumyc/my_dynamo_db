@@ -8,7 +8,7 @@ import scala.collection.immutable.{ListSet, TreeMap}
 /**
  * partitioner
  */
-class Partitioner(val virtualNums:Int = 256) {
+class Partitioner(val virtualNums:Int = 512) {
 
     /**
      * splitter used to join real node and virtual node index

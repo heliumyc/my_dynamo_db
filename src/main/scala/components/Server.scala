@@ -52,8 +52,8 @@ class Server(val name: String,
     case class MaxWaitTimeout(queryId: QueryId)
 
     val MAX_WAIT_TIMEOUT: FiniteDuration = 500.milliseconds
-    val HINTS_WRITE_WAIT_TIME: FiniteDuration = 50.milliseconds
-    val HANDOFF_INTERVAL_TIME: FiniteDuration = 100.milliseconds
+    val HINTS_WRITE_WAIT_TIME: FiniteDuration = 200.milliseconds
+    val HANDOFF_INTERVAL_TIME: FiniteDuration = 200.milliseconds
 
     timers.startTimerWithFixedDelay(HintedHandoffTimer, HintedHandoffTimer, HANDOFF_INTERVAL_TIME)
 
