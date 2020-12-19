@@ -5,6 +5,7 @@ import myutils.{CollectionUtils, IndexedBuffer}
 import akka.actor.{Actor, ActorRef, Timers}
 import environment.{FuzzParams, Fuzzed, MessageLogging}
 import myutils.Order.{AFTER, BEFORE, CONCURRENT, SAME}
+import myutils.{SimpleLogger => Logger}
 
 import scala.collection.mutable
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
@@ -51,8 +52,8 @@ class Server(val name: String,
     case class MaxWaitTimeout(queryId: QueryId)
 
     val MAX_WAIT_TIMEOUT: FiniteDuration = 500.milliseconds
-    val HINTS_WRITE_WAIT_TIME: FiniteDuration = 100.milliseconds
-    val HANDOFF_INTERVAL_TIME: FiniteDuration = 3.seconds
+    val HINTS_WRITE_WAIT_TIME: FiniteDuration = 50.milliseconds
+    val HANDOFF_INTERVAL_TIME: FiniteDuration = 100.milliseconds
 
     timers.startTimerWithFixedDelay(HintedHandoffTimer, HintedHandoffTimer, HANDOFF_INTERVAL_TIME)
 
@@ -71,7 +72,10 @@ class Server(val name: String,
 
     /** ******* utility function ******** */
     def broadcast[T](targets: Iterable[Host], message: T, delay: Double, dropRate: Double): Unit = {
-        targets.flatMap(metadata.getActorRef).foreach(send(_, message, delay, dropRate))
+//        targets.flatMap(metadata.getActorRef).foreach(send(_, message, delay, dropRate))
+        targets.flatMap(metadata.getActorRef).foreach(x => {
+            send(x, message, delay, dropRate)
+        })
     }
 
     def sendToHost[T](target: Host, message: T, delay: Double, dropRate: Double): Unit = {
@@ -203,11 +207,11 @@ class Server(val name: String,
     def handleHintedHandoff: Receive = {
         case HintsTransitRequest(queryId, key, originalHost, record) =>
             hintsStorage.add((originalHost, key, record))
-            send(sender(), WriteReplicaResponse(queryId, success = true, currentHost, key), fuzzParams.writeDelay, fuzzParams.dropRate)
+            send(sender(), WriteReplicaResponse(queryId, success = true, currentHost, key), fuzzParams.arsDelay, fuzzParams.dropRate)
         case HintedHandoffRequest(hintId, key, record) =>
             // write replication into current storage
             tryMergeAndPut(key, record)
-            send(sender(), HintedHandoffResponse(hintId, success = true, currentHost, key), fuzzParams.writeDelay, fuzzParams.dropRate)
+            send(sender(), HintedHandoffResponse(hintId, success = true, currentHost, key), fuzzParams.arsDelay, fuzzParams.dropRate)
         case HintedHandoffResponse(hintId, true, from, key) =>
             // successful logic, remove it from to_send list
             // unsuccessful ones will be retried when timer is up
@@ -219,13 +223,13 @@ class Server(val name: String,
             val hintsNodes = metadata.partition.getNextNHosts(key, replicasToHandoff.length, metadata.replicaN)
             (replicasToHandoff zip hintsNodes).foreach {
                 case ((host, record), target) =>
-                    sendToHost(target, HintsTransitRequest(queryId, key, host, record), fuzzParams.writeDelay, fuzzParams.dropRate)
+                    sendToHost(target, HintsTransitRequest(queryId, key, host, record), fuzzParams.arsDelay, fuzzParams.dropRate)
             }
         case HintedHandoffTimer =>
             // scan hints storage and handoff them to original host
             hintsStorage.internalData.foreach {
                 case (hintId, (host, key, record)) =>
-                    sendToHost(host, HintedHandoffRequest(hintId, key, record), fuzzParams.writeDelay, fuzzParams.dropRate)
+                    sendToHost(host, HintedHandoffRequest(hintId, key, record), fuzzParams.arsDelay, fuzzParams.dropRate)
             }
     }
 
@@ -238,6 +242,7 @@ class Server(val name: String,
             // store record into memory
             val record = Record(value, updatedVersion)
             storage.put(key, record)
+            writeResultBuffer.add(queryId, currentHost)
             // replicate data to other replication server
             val replicas = getReplicasList(key)
             replicationSendBuffer.set(queryId, replicas.map(host => (host, record)))
@@ -281,6 +286,9 @@ class Server(val name: String,
         case UpdateConfiguration(metadata) => this.metadata = metadata.copy()
     }
 
+    case object TestTimer
+//    timers.startTimerWithFixedDelay(TestTimer, TestTimer, 500.milliseconds)
+
     /**
      * only for test
      * @return
@@ -290,6 +298,8 @@ class Server(val name: String,
             sender() ! GetResult(key, storage.get(key))
         case UpdateFuzzParams(fuzzParams) =>
             this.fuzzParams = fuzzParams
+//        case TestTimer =>
+//            Logger.info(context.system.eventStream.toString)
     }
 
     override def receive: Receive = List(

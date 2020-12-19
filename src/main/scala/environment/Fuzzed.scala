@@ -14,7 +14,7 @@ trait Fuzzed extends Actor {
     val rand: Random = new Random()
 
     def send(target: ActorRef, msg: Any, delay: Double, dropRate: Double)(implicit context: ActorContext): Unit = {
-        Logger.info(s"Send: ${context.self.path.name} send $msg to ${target.path.name}")
+//        Logger.info(s"Send: ${context.self.path.name} send $msg to ${target.path.name} with $delay and $dropRate")
         // context.system.scheduler.scheduleOnce(1 second, target, msg)
         val notDrop = rand.nextDouble() > dropRate
         if (notDrop) {

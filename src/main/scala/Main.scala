@@ -29,13 +29,7 @@ object Main extends App {
         }
     }
 
-    trait TestImplicit extends Actor {
-        def f(implicit s: String = "fuck"): Unit = {
-            println(s)
-        }
-    }
-
-    class A extends Actor with Fuzzed with Timers {
+    class A extends Actor with Timers {
 
         case object TimerKey
         case object Timer
@@ -47,36 +41,46 @@ object Main extends App {
         def handleMsg: Receive = {
             case Redirect(x, target) =>
                 println(x)
-                send(target, "fuck", 0, 0)
+//                send(target, "fuck", 0, 0)
             case Salute(x) =>
                 this.x = x
-                after(1000.milliseconds)(Future{
-                    sender() ! "this is set!"
+//                send(self, "self", 0, 0)
+                println(sender())
+//                send(sender(), "tmd", 10, 0)
+                val s = sender()
+                after(10.milliseconds)(Future{
+                    s ! "this is set!"
                 })(context.system)
             case s: String =>
+                sender ! "nmd"
                 println(s"received ${s} in ${context.self} from ${sender()}")
         }
 
         def handleTimer: Receive = {
             case Timer =>
-//                println(s"Timer is up in ${x}")
+                println(s"Timer is up in ${x}")
             case Cancel =>
-//                println("receive cancel")
+                println("receive cancel")
                 timers.cancel(TimerKey)
         }
 
         override def receive: Receive = handleMsg orElse handleTimer
     }
 
-    override def main(args: Array[String]): Unit = {
+    def test(): Unit = {
         val system = ActorSystem("KV")
         val server1 = system.actorOf(Props[A], name = "server1")
         Thread.sleep(2000)
 
         implicit val timeout: Timeout = Timeout(5.seconds)
-        val future = server1 ? Salute("hello")
-        val retString = Await.result(future, timeout.duration).asInstanceOf[String]
+//        server1 ? "fuc"
+        val retString = Await.result(server1 ? Salute("nmd"), 10.seconds).asInstanceOf[String]
         println(retString)
+    }
+
+    override def main(args: Array[String]): Unit = {
+        test()
+//        system.terminate()
     }
 
 }

@@ -23,8 +23,11 @@ class GetPutTest extends TestCase {
 
         val client = system.actorOf(Props(new Actor {
             override def preStart: Unit = {
+                server ! Get("goodbye")
                 server ! Put("hello", "apple", Version())
-                server ! Get("aa")
+                server ! Put("goodbye", "banana", Version())
+                server ! Get("goodbye")
+                server ! Get("goodbye")
             }
 
             override def receive: Receive = {

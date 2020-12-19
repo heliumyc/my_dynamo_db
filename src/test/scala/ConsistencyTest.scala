@@ -1,7 +1,7 @@
 import akka.actor.{Actor, ActorRef, ActorSystem, Props, Timers}
 import akka.pattern.ask
 import akka.util.Timeout
-import components.Message.{Get, GetResult, PeekStorage, Put, UpdateConfiguration, UpdateFuzzParams}
+import components.Message.{ExtraInfo, Get, GetResult, PeekStorage, Put, UpdateConfiguration, UpdateFuzzParams}
 import components.{Host, Metadata, Server, Version}
 import environment.{FuzzParams, Fuzzed}
 import junit.framework.TestCase
@@ -14,9 +14,10 @@ import scala.util.Random
 
 class ConsistencyTest extends TestCase {
 
-    def getConsistency(arsMeanDelay: Double, writeMeanDelay: Double, timeAfterWrite: Double, quorumW: Int, quorumR: Int, replicaN: Int, serverNum: Int): Double = {
+    def getConcurrentConsistency(arsMeanDelay: Double, writeMeanDelay: Double, timeAfterWrite: List[Double], quorumW: Int, quorumR: Int, replicaN: Int, serverNum: Int): List[Double] = {
         val rand = ExpRandomGenerator
-        val iterations = 1 to 1
+        val totalTrials = 50000
+        val iterations = 1 to totalTrials
         // generate pseudo query for every iteration
         val queries = iterations.map(i => {
             val key = s"user $i"
@@ -39,22 +40,29 @@ class ConsistencyTest extends TestCase {
         )))
 
         // wait for sync
-        Thread.sleep(1000)
+        Thread.sleep(3000)
 
         val counter = system.actorOf(Props(new Actor with Timers {
 
             object End
 
-            var consistentTrial = 0
+            var trialResult: List[Int] = timeAfterWrite.map(_ => 0)
+            var completeTrial: Int = 0
             var caller: Option[ActorRef] = None
-            timers.startSingleTimer(End, End, 5.seconds)
 
             override def receive: Receive = {
-                case x: Int => consistentTrial += 1
-                case "get" => caller = Some(sender())
+                case subResult:List[Int] =>
+                    trialResult = (trialResult zip subResult).map{case (x,y) => x+y}
+
+                    completeTrial += 1
+                    if (completeTrial >= totalTrials) {
+                        self ! End
+                    }
+                case "get" =>
+                    caller = Some(sender())
                 case End =>
                     if (caller.isDefined) {
-                        caller.get ! consistentTrial
+                        caller.get ! trialResult
                     }
                 case _ =>
             }
@@ -63,35 +71,75 @@ class ConsistencyTest extends TestCase {
         (iterations zip queries) foreach { case (i, (key, value)) =>
             // we do iteration times experiments
             val target = Server.redirectToCoordinator(metaData, key).get
+            target ! Put(key, value, Version())
             val client = system.actorOf(Props(new Actor with Fuzzed {
+                var count = 0
+                var subResult: List[Int] = List()
                 override def receive: Receive = {
-                    case GetResult(key, Some(record), allReplicas) =>
-                        if (value == record.value) {
-                            send(counter, 1, 0, 0)
+                    case GetResult(_, _, allReplicas) =>
+                        if (allReplicas.contains(None)) {
+                            subResult = 0 :: subResult
+                        } else {
+                            subResult = 1 :: subResult
                         }
-                        context.system.stop(self)
-                    case GetResult(key, None, _) =>
-                        context.system.stop(self)
+                        count += 1
+                        if (count >= timeAfterWrite.length) {
+                            counter ! subResult.reverse.sorted
+                            context.system.stop(self)
+                        }
                     case _ =>
                 }
 
                 override def preStart(): Unit = {
-                    // put key value into storage
-                    send(target, Put(key, value, Version()), 0, 0)
-                    // after time t, read from system
-                    send(target, Get(key), timeAfterWrite, 0)
+                    timeAfterWrite.foreach(t => send(target, Get(key, ExtraInfo(true)), t, 0))
                 }
             }), s"client_$i")
         }
 
-        implicit val timeout: Timeout = Timeout(5.seconds)
-        val trialResult = Await.result(counter ? "get", 10.seconds).asInstanceOf[Int]
-        println(trialResult)
+        implicit val timeout: Timeout = Timeout(30.seconds)
+        val trialResult = Await.result(counter ? "get", timeout.duration).asInstanceOf[List[Int]]
+        println(trialResult, totalTrials)
 
-        trialResult.toDouble / iterations.length
+        trialResult.map(x => x.toDouble / totalTrials)
     }
 
-    def testConsistency(): Unit = {
-        getConsistency(5, 20, 1, quorumR = 1, quorumW = 1, replicaN = 3, serverNum = 10)
+    def testConcurrentConsistency(): Unit = {
+        val timeSerials = List(2,4,8,16,32,64,128,256).map(_.toDouble)
+        val WS = List(20, 10, 5, 5, 10, 20)
+        val ARS = List(2, 5, 2, 10, 20)
+        val wars_1 = getConcurrentConsistency(2, 200, timeSerials,
+            quorumR = 1+1, quorumW = 2+1, replicaN = 5+1, serverNum = 100)
+        wars_1.foreach(println)
+    }
+
+    def getIdealConsistency(arsMeanDelay: Double, writeMeanDelay: Double, timeAfterWrite: Double, quorumW: Int, quorumR: Int, replicaN: Int): Double = {
+        var consistentTrials = 0
+        val rand = ExpRandomGenerator
+        val iterations = 5000
+        val replicas = 0 until replicaN
+        for (elem <- (1 to iterations)) {
+            val Ws = replicas.map(replica => rand.nextExp(1/writeMeanDelay))
+            val As = replicas.map(replica => rand.nextExp(1/arsMeanDelay))
+            val Rs = replicas.map(replica => rand.nextExp(1/arsMeanDelay))
+            val Ss = replicas.map(replica => rand.nextExp(1/arsMeanDelay))
+            val writesLatency = (Ws zip As).map{case (x,y) => x+y}
+            val readLatency = (Rs zip Ss).map{case (x,y) => x+y}
+            val writeFinish = writesLatency.sorted.toList(quorumW-1)
+            val readFinish= readLatency.sorted.toList(quorumR-1)
+            val replyReplicas = replicas.filter(i => readLatency(i) <= readFinish)
+            val consistentNum = replyReplicas.map(i => {
+                if (writeFinish + Rs(i) + timeAfterWrite >= Ws(i)) 1 else 0
+            }).sum
+//            println(consistentNum)
+            consistentTrials += (if (consistentNum > 0) 1 else 0)
+        }
+//        println(consistentTrials)
+        consistentTrials.toDouble / iterations
+    }
+
+    def testIdealConsistency(): Unit = {
+        val timeSerials = List(1,2,4,6,8,10,20,50,100)
+        val WS = List(20, 10, 5, 5, 10, 20)
+        val ARS = List(10, 5, 2, 10, 20)
     }
 }
